@@ -1,0 +1,21 @@
+# Render Blueprint — New → Blueprint → pick this repo. No build step, no dependencies.
+services:
+  - type: web
+    name: guess-the-song
+    runtime: node
+    plan: free
+    buildCommand: echo "No build step"
+    startCommand: node server/index.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      # Optional: enables Spotify playlist import (free app at developer.spotify.com).
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      # Free instances have no persistent disk: shared quizzes and the global leaderboard reset
+      # when the service restarts. On a paid plan, add a disk and point DATA_DIR at it.
+      # - key: DATA_DIR
+      #   value: /var/data

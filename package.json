@@ -1,0 +1,15 @@
+{
+  "name": "guess-the-song",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A fast-paced music guessing game with multiplayer and custom playlist quizzes. No dependencies.",
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test",
+    "resolve-songs": "node scripts/resolve-songs.mjs"
+  },
+  "engines": {
+    "node": ">=18.17"
+  }
+}
