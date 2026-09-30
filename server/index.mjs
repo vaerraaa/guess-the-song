@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { MODES, CATEGORIES } from '../js/config.js';
 import { sanitizeQuiz } from '../js/core/customQuiz.js';
 import { ImportError, importPlaylist, spotifyEnabled } from './imports.mjs';
@@ -214,6 +215,19 @@ async function handleApi(req, res, url) {
 }
 
 // ── Static files ──────────────────────────────────────────────────────
+const etagCache = new Map(); // path → { key, etag }
+
+async function readWithEtag(file, info) {
+  const body = await readFile(file);
+  const key = `${info.size}:${info.mtimeMs}`;
+  let entry = etagCache.get(file);
+  if (!entry || entry.key !== key) {
+    entry = { key, etag: `"${createHash('sha1').update(body).digest('base64url').slice(0, 22)}"` };
+    etagCache.set(file, entry);
+  }
+  return { body, etag: entry.etag };
+}
+
 async function serveStatic(req, res, url) {
   let path = decodeURIComponent(url.pathname).replace(/^\/+/, '');
   if (path === '' || path.endsWith('/')) path += 'index.html';
@@ -224,16 +238,17 @@ async function serveStatic(req, res, url) {
     if (!allowed) throw new Error('not public');
     const info = await stat(file);
     if (!info.isFile()) throw new Error('not a file');
-    // Revalidate every time (cheap 304s) so a new deploy never mixes old and new modules.
-    const lastModified = info.mtime.toUTCString();
-    const headers = { ...SECURITY_HEADERS, 'Cache-Control': 'no-cache', 'Last-Modified': lastModified };
-    const since = Date.parse(req.headers['if-modified-since'] ?? '');
-    if (since && Math.floor(info.mtimeMs / 1000) <= Math.floor(since / 1000)) {
+    // Revalidate every time against a hash of the file's contents. A browser keeps its copy only
+    // when the bytes are identical, so deploying a newer OR an older version (a rollback) can
+    // never leave it running a mix of old and new modules. Date-based validators can't do that:
+    // a rollback serves files with older timestamps, which looks "not modified".
+    const { body, etag } = await readWithEtag(file, info);
+    const headers = { ...SECURITY_HEADERS, 'Cache-Control': 'no-cache', ETag: etag };
+    if (req.headers['if-none-match'] === etag) {
       res.writeHead(304, headers);
       res.end();
       return;
     }
-    const body = await readFile(file);
     res.writeHead(200, { ...headers, 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream' });
     res.end(req.method === 'HEAD' ? undefined : body);
   } catch {

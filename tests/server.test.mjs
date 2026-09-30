@@ -178,3 +178,16 @@ test('global leaderboard validates scores', async () => {
   const list = await (await fetch(`${BASE}/api/leaderboard?mode=classic`)).json();
   assert.equal(list[0].name, 'Aarav');
 });
+
+test('static caching survives rollbacks: only an exact content match is "not modified"', async () => {
+  const first = await fetch(`${BASE}/js/main.js`);
+  const etag = first.headers.get('etag');
+  assert.ok(etag, 'static files carry a content ETag');
+  assert.equal(first.headers.get('cache-control'), 'no-cache');
+  assert.equal((await fetch(`${BASE}/js/main.js`, { headers: { 'If-None-Match': etag } })).status, 304);
+  // A copy from another deploy (different bytes) must be re-downloaded…
+  assert.equal((await fetch(`${BASE}/js/main.js`, { headers: { 'If-None-Match': '"some-other-version"' } })).status, 200);
+  // …even when its timestamp is newer than the files being served (the rollback case).
+  const future = new Date(Date.now() + 365 * 864e5).toUTCString();
+  assert.equal((await fetch(`${BASE}/js/main.js`, { headers: { 'If-Modified-Since': future } })).status, 200);
+});
