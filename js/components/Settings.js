@@ -6,45 +6,49 @@ import { confirmDialog, openModal } from './Modal.js';
 import { toast } from './Toast.js';
 
 const TOGGLES = [
-  { key: 'sound', label: 'Sound effects', hint: 'Clicks and the right/wrong cues' },
-  { key: 'music', label: 'Menu music', hint: 'A soft pad on the menus, never during a round' },
-  { key: 'animations', label: 'Animations', hint: 'Spinning disc, waveform and floating covers' },
+  { key: 'sound', label: 'Sound effects', hint: 'Clicks, correct and wrong cues' },
+  { key: 'music', label: 'Menu music', hint: 'Soft ambient music outside of games' },
+  { key: 'animations', label: 'Animations', hint: 'Motion and celebration effects' },
 ];
 
 export function openSettings() {
   const s = app.settings;
   const content = html(`
-    <form class="ln-list" onsubmit="return false">
+    <form class="settings" onsubmit="return false">
       ${TOGGLES.map(({ key, label, hint }) => `
-        <label class="ln-setting">
-          <span><strong class="ln-body-md">${label}</strong><small>${hint}</small></span>
-          <input type="checkbox" role="switch" class="ln-switch" name="${key}" ${s[key] ? 'checked' : ''}>
+        <label class="setting-row">
+          <span><strong>${label}</strong><small>${hint}</small></span>
+          <input type="checkbox" role="switch" class="switch" name="${key}" ${s[key] ? 'checked' : ''}>
         </label>`).join('')}
-      <fieldset class="ln-setting">
-        <legend class="sr-only">Printing</legend>
-        <span><strong class="ln-body-md">Printing</strong><small>Ink on paper, or cream ink on black board</small></span>
-        <span class="ln-segment">
-          <label><input type="radio" name="theme" value="light" ${s.theme === 'light' ? 'checked' : ''}><span>Day</span></label>
-          <label><input type="radio" name="theme" value="dark" ${s.theme === 'dark' ? 'checked' : ''}><span>Night</span></label>
+
+      <fieldset class="setting-row">
+        <legend class="sr-only">Theme</legend>
+        <span><strong>Theme</strong><small>Dark or light interface</small></span>
+        <span class="segmented">
+          <label><input type="radio" name="theme" value="dark" ${s.theme === 'dark' ? 'checked' : ''}><span>Dark</span></label>
+          <label><input type="radio" name="theme" value="light" ${s.theme === 'light' ? 'checked' : ''}><span>Light</span></label>
         </span>
       </fieldset>
-      <fieldset class="ln-setting">
+
+      <fieldset class="setting-row">
         <legend class="sr-only">Song previews</legend>
-        <span><strong class="ln-body-md">Song previews</strong><small>Real 30-second previews need internet. Offline plays placeholder tunes.</small></span>
-        <span class="ln-segment">
+        <span><strong>Song previews</strong><small>Real 30s store previews need internet. Offline plays placeholder tunes.</small></span>
+        <span class="segmented">
           <label><input type="radio" name="audioSource" value="online" ${s.audioSource === 'online' ? 'checked' : ''}><span>Online</span></label>
           <label><input type="radio" name="audioSource" value="offline" ${s.audioSource === 'offline' ? 'checked' : ''}><span>Offline</span></label>
         </span>
       </fieldset>
-      <div class="ln-setting">
-        <span><strong class="ln-body-md">Reset this device</strong><small>Clears scores, stats, quizzes, your name and settings</small></span>
-        <button type="button" class="ln-btn ln-btn--danger ln-btn--small" data-reset>Reset</button>
+
+      <div class="setting-row danger-zone">
+        <span><strong>Reset local data</strong><small>Clears scores, stats, quizzes, username and settings on this device</small></span>
+        <button type="button" class="btn btn-danger btn-small" data-reset>Reset</button>
       </div>
     </form>`);
 
   content.addEventListener('change', (e) => {
     const input = e.target;
-    app.updateSettings({ [input.name]: input.type === 'checkbox' ? input.checked : input.value });
+    const value = input.type === 'checkbox' ? input.checked : input.value;
+    app.updateSettings({ [input.name]: value });
   });
 
   const modal = openModal({ title: 'Settings', content });
@@ -53,7 +57,7 @@ export function openSettings() {
     modal.close();
     const ok = await confirmDialog({
       title: 'Reset all data?',
-      message: 'This permanently clears your scores, stats, custom quizzes, name and settings on this device. Shared quiz links keep working.',
+      message: 'This permanently clears your scores, stats, custom quizzes, username and settings on this device. Shared quiz links keep working.',
       confirmLabel: 'Reset everything',
       danger: true,
     });

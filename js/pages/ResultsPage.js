@@ -2,12 +2,11 @@ import { app } from '../app.js';
 import { DIFFICULTIES, MODES } from '../config.js';
 import { getCategory } from '../core/questions.js';
 import { performanceMessage } from '../core/scoring.js';
-import { catalog, creditLine, mark, pad2, statLine, waveform } from '../components/ln.js';
 import { TopBar } from '../components/TopBar.js';
 import { startGame } from '../gameSession.js';
 import { navigate } from '../router.js';
 import { leaderboardRepository, loadUsername, saveUsername } from '../storage/storage.js';
-import { esc, formatNumber, formatSeconds, generatedArtwork, html } from '../utils.js';
+import { animateNumber, esc, formatSeconds, generatedArtwork, html } from '../utils.js';
 
 export function mount(root) {
   const result = app.getLastResult();
@@ -21,74 +20,72 @@ export function mount(root) {
   const difficulty = DIFFICULTIES[summary.difficultyId];
   const message = performanceMessage(summary.accuracy);
   const endless = mode.lives != null;
-  const record = summary.quizTitle ? catalog('GTS-Q', summary.quizTitle) : catalog(category.code, category.name);
 
   root.append(TopBar());
   root.append(html(`
-    <main class="gts-page">
-      <div class="gts-split">
-        <section class="gts-stack">
-          <div class="gts-stack-sm">
-            <p class="ln-label-caps ln-muted">${endless ? 'Game over' : 'Round complete'} · ${record}</p>
-            <h1 class="ln-headline-lg">${summary.correct} of ${summary.answered} named.</h1>
-            <p class="ln-body-lg ln-italic ln-muted">${esc(message.title)}</p>
-          </div>
-          <div class="gts-stack-sm">
-            <p class="ln-label-caps ln-muted">Final score</p>
-            <span class="ln-readout">${formatNumber(summary.score)}</span>
-            ${waveform({ bars: 36, height: 22, playing: false, seed: (summary.score % 11) + 3 })}
-          </div>
-          ${statLine([
-            { value: `${summary.accuracy}%`, label: 'accuracy' },
-            { value: summary.bestStreak, label: 'best streak' },
-            { value: summary.avgResponseMs == null ? '—' : `${formatSeconds(summary.avgResponseMs)}s`, label: 'average answer' },
-          ])}
-          <p class="ln-label-caps ln-muted">${esc(mode.format)} · ${esc(mode.name)} · ${esc(difficulty?.name ?? '')}</p>
+    <main class="container results">
+      <section class="results-hero">
+        <p class="eyebrow">${mode.icon} ${esc(mode.name)} · ${summary.quizTitle ? `🎼 ${esc(summary.quizTitle)}` : `${category.icon} ${esc(category.name)}`} · ${esc(difficulty?.name ?? '')}</p>
+        <h1>${endless ? 'Game over' : 'Game complete'}</h1>
+        <p class="results-label">Final score</p>
+        <p class="results-score" data-value="0">0</p>
+        <p class="results-message"><span aria-hidden="true">${message.emoji}</span> ${esc(message.title)}</p>
+      </section>
 
-          <form class="gts-stack-sm" data-save novalidate>
-            <div class="ln-inline-form">
-              <div class="ln-field">
-                <label class="ln-field__label" for="player-name">Sign the leaderboard</label>
-                <input id="player-name" class="ln-input" name="name" maxlength="20" autocomplete="nickname" placeholder="Your name" required>
-              </div>
-              <button type="submit" class="ln-btn ln-btn--secondary">Save score</button>
-            </div>
-            <p class="ln-form-msg" aria-live="polite"></p>
-          </form>
+      <dl class="stat-grid">
+        <div class="stat"><dt>Correct</dt><dd>${summary.correct} <span class="muted">/ ${summary.answered}</span></dd></div>
+        <div class="stat"><dt>Accuracy</dt><dd>${summary.accuracy}%</dd></div>
+        <div class="stat"><dt>Best streak</dt><dd><span aria-hidden="true">🔥</span> ${summary.bestStreak}</dd></div>
+        <div class="stat"><dt>Avg. response</dt><dd>${summary.avgResponseMs == null ? '—' : `${formatSeconds(summary.avgResponseMs)} sec`}</dd></div>
+      </dl>
 
-          <div class="ln-btn-row">
-            <button type="button" class="ln-btn ln-btn--primary" data-again>Play again</button>
-            <a class="ln-btn ln-btn--secondary" href="#/play">Change mode</a>
-            <a class="ln-btn ln-btn--quiet" href="#/leaderboard">Leaderboard</a>
-            <a class="ln-btn ln-btn--quiet" href="#/">Back to the booklet</a>
-          </div>
-        </section>
+      <form class="save-score card" novalidate>
+        <label for="player-name"><strong>Save to leaderboard</strong></label>
+        <div class="save-row">
+          <input id="player-name" name="name" type="text" maxlength="20" autocomplete="nickname" placeholder="Your name" required>
+          <button type="submit" class="btn btn-primary">Save score</button>
+        </div>
+        <p class="form-msg" aria-live="polite"></p>
+      </form>
 
-        <section aria-labelledby="recap-title">
-          <h2 class="ln-section-label" id="recap-title">Tracklist</h2>
-          ${recap.map((r, i) => `
-            <div class="gts-recap">
-              <span class="ln-data-md ln-muted">${pad2(i + 1)}</span>
-              <img class="gts-recap__art" src="${esc(r.artwork || generatedArtwork(typeof r.id === 'number' ? r.id : i + 1))}" alt="" loading="lazy">
-              ${creditLine({ title: r.title, artist: r.artist, album: r.album, year: r.year, size: 'sm' })}
-              ${r.correct ? mark('correct', `+${r.points}`) : mark('wrong', r.timedOut ? 'Out of time' : 'Missed')}
-            </div>`).join('')}
-        </section>
+      <div class="results-actions">
+        <button type="button" class="btn btn-primary btn-lg" data-again>Play again</button>
+        <a class="btn btn-ghost btn-lg" href="#/play">Change mode</a>
+        <a class="btn btn-ghost btn-lg" href="#/leaderboard">Leaderboard</a>
+        <a class="btn btn-ghost btn-lg" href="#/">Home</a>
       </div>
+
+      <section class="recap" aria-labelledby="recap-title">
+        <h2 id="recap-title">Your songs</h2>
+        <ol class="recap-list">
+          ${recap.map((r, i) => `
+            <li class="recap-item ${r.correct ? 'is-correct' : 'is-wrong'}" style="--i:${i}">
+              <img src="${esc(r.artwork || generatedArtwork(r.id))}" alt="" loading="lazy">
+              <span class="recap-text"><strong>${esc(r.title)}</strong><span>${esc(r.artist)}</span></span>
+              <span class="recap-result">
+                <span class="sr-only">${r.correct ? 'Correct' : r.timedOut ? 'Timed out' : 'Wrong'}</span>
+                <span aria-hidden="true">${r.correct ? '✓' : '✗'}</span>
+                ${r.correct ? `+${r.points}` : r.timedOut ? 'time' : ''}
+              </span>
+            </li>`).join('')}
+        </ol>
+      </section>
     </main>`));
 
+  animateNumber(root.querySelector('.results-score'), summary.score, 1200);
+
   // ── Save score ────────────────────────────────────────────────────
-  const form = root.querySelector('[data-save]');
+  const form = root.querySelector('.save-score');
   const input = form.querySelector('input');
-  const button = form.querySelector('button');
-  const msg = form.querySelector('.ln-form-msg');
+  const msg = form.querySelector('.form-msg');
   input.value = loadUsername();
 
   const markSaved = (rank, globalRank) => {
+    form.classList.add('is-saved');
     input.disabled = true;
-    button.disabled = true;
-    const where = globalRank ? `number ${globalRank} worldwide` : `number ${rank} on this device`;
-    msg.innerHTML = `${mark('correct', 'Signed')} <span class="ln-body-sm">You're ${esc(where)} in ${esc(mode.name)}. <a href="#/leaderboard">See the leaderboard</a></span>`;
+    form.querySelector('button').disabled = true;
+    const where = globalRank ? `<strong>#${globalRank}</strong> worldwide in ${esc(mode.name)}` : `<strong>#${rank}</strong> on this device in ${esc(mode.name)}`;
+    msg.innerHTML = rank ? `Saved! You're ${where}. <a href="#/leaderboard">View leaderboard</a>` : 'Score saved.';
   };
   if (result.saved) markSaved(result.rank, result.globalRank);
 
@@ -96,13 +93,13 @@ export function mount(root) {
     e.preventDefault();
     const name = input.value.trim().replace(/\s+/g, ' ');
     if (!name) {
-      msg.innerHTML = '<span class="ln-error-text">Enter a name to save your score.</span>';
+      msg.textContent = 'Enter a name to save your score.';
       input.focus();
       return;
     }
     if (result.saved) return;
     saveUsername(name);
-    button.disabled = true;
+    form.querySelector('button').disabled = true;
     const { record, rank, globalRank, globalId } = await leaderboardRepository.add({
       name,
       score: summary.score,
