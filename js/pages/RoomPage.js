@@ -2,29 +2,19 @@ import { api, appUrl } from '../api.js';
 import { app } from '../app.js';
 import { audioManager } from '../audio/audioManager.js';
 import { sfx, unlockAudio } from '../audio/synth.js';
-import { AnswerButton } from '../components/AnswerButton.js';
-import { celebrate } from '../components/celebrate.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { avatar, catalog, creditLine, Disc, equalizer, live, mark, pad2, TrackRow, waveform } from '../components/ln.js';
 import { confirmDialog } from '../components/Modal.js';
 import { RoomSettingsForm } from '../components/RoomSettingsForm.js';
-import { createCountdown, Timer } from '../components/Timer.js';
+import { createCountdown } from '../components/Timer.js';
 import { toast } from '../components/Toast.js';
-import { Waveform } from '../components/Waveform.js';
 import { copyText } from '../quizActions.js';
 import { navigate } from '../router.js';
 import { loadRoomSeat, saveRoomSeat } from '../storage/storage.js';
-import { animateNumber, esc, formatNumber, formatSeconds, generatedArtwork, html } from '../utils.js';
+import { esc, formatNumber, formatSeconds, generatedArtwork, html } from '../utils.js';
 
 const KEY_TO_INDEX = { 1: 0, 2: 1, 3: 2, 4: 3, a: 0, b: 1, c: 2, d: 3 };
-const MEDALS = ['🥇', '🥈', '🥉'];
-
-function avatarHue(name) {
-  return [...name].reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) % 360, 17);
-}
-
-function avatar(player, size = '') {
-  return `<span class="avatar ${size}" style="--hue:${avatarHue(player.name)}" aria-hidden="true">${esc(player.name.slice(0, 1).toUpperCase())}</span>`;
-}
+const LIVE_AT = 3;
 
 export function mount(root) {
   const seat = loadRoomSeat();
@@ -42,38 +32,47 @@ export function mount(root) {
   let startTimer = null;
   let leadInTimer = null;
   let revealTimer = null;
-  let answerButtons = [];
+  let rows = [];
   let myChoice = null;
   let settingsForm = null;
+  let disc = null;
+  let hostControls = null;
+  let lastMessage = null;
   const serverNow = () => Date.now() + (clockOffset ?? 0);
 
   const shell = html(`
-    <div class="room">
-      <header class="room-bar">
-        <button type="button" class="icon-btn" data-leave aria-label="Leave room">✕</button>
-        <button type="button" class="room-code-chip" data-copy aria-label="Copy invite link">
-          <span class="muted">Room</span> <strong data-code>${esc(seat.code)}</strong> <span aria-hidden="true">⧉</span>
-        </button>
-        <span class="room-status" aria-live="polite"></span>
-        <button type="button" class="icon-btn mute-btn" data-mute></button>
-      </header>
-      <main class="container-narrow room-main"></main>
+    <main class="gts-page">
+      <div class="ln-strip ln-strip--sticky">
+        <span class="ln-strip__items">
+          <button type="button" class="ln-strip__btn" data-copy aria-label="Copy invite link for room ${esc(seat.code)}">Room <span style="color:var(--color-on-surface)">${esc(seat.code)}</span></button>
+          <span class="ln-strip__dot">·</span>
+          <span data-strip-info></span>
+          <span data-status aria-live="polite" style="color:var(--color-tertiary)"></span>
+        </span>
+        <span class="ln-strip__actions">
+          <span data-time></span>
+          <button type="button" class="ln-strip__btn" data-mute aria-keyshortcuts="M"></button>
+          <button type="button" class="ln-strip__btn" data-leave>Leave</button>
+        </span>
+      </div>
+      <div data-view><p class="ln-label-caps ln-muted" style="padding:48px 0">Connecting to the room…</p></div>
       <p class="sr-only" aria-live="assertive" data-announce></p>
-    </div>`);
+    </main>`);
   root.append(shell);
-  const view = shell.querySelector('.room-main');
-  const statusEl = shell.querySelector('.room-status');
+  const view = shell.querySelector('[data-view]');
+  const statusEl = shell.querySelector('[data-status]');
+  const infoEl = shell.querySelector('[data-strip-info]');
+  const timeEl = shell.querySelector('[data-time]');
   const announce = (text) => {
     const el = shell.querySelector('[data-announce]');
     el.textContent = '';
     setTimeout(() => (el.textContent = text), 50);
   };
 
-  // ── Controls in the bar ───────────────────────────────────────────
+  // ── Strip controls ────────────────────────────────────────────────
   const muteBtn = shell.querySelector('[data-mute]');
   const renderMute = () => {
-    muteBtn.textContent = audioManager.muted ? '🔇' : '🔊';
-    muteBtn.setAttribute('aria-label', audioManager.muted ? 'Unmute' : 'Mute');
+    muteBtn.textContent = audioManager.muted ? 'Unmute' : 'Mute';
     muteBtn.setAttribute('aria-pressed', String(audioManager.muted));
   };
   renderMute();
@@ -83,16 +82,15 @@ export function mount(root) {
   });
 
   const inviteLink = () => appUrl({ room: seat.code });
-  shell.querySelector('[data-copy]').addEventListener('click', async () => {
-    toast((await copyText(inviteLink())) ? 'Invite link copied.' : `Invite link: ${inviteLink()}`);
-  });
+  const copyInvite = async () => toast((await copyText(inviteLink())) ? 'Invite link copied.' : `Invite link: ${inviteLink()}`);
+  shell.querySelector('[data-copy]').addEventListener('click', copyInvite);
 
   shell.querySelector('[data-leave]').addEventListener('click', async () => {
     const inGame = state && ['starting', 'question', 'reveal'].includes(state.phase);
     const ok = await confirmDialog({
-      title: 'Leave this room?',
-      message: inGame ? 'The game will continue without you.' : 'You can rejoin with the room code while it’s open.',
-      confirmLabel: 'Leave room',
+      title: 'Leave the room?',
+      message: inGame ? 'The others can keep playing without you.' : 'You can rejoin with the same code while the room is open.',
+      confirmLabel: 'Leave',
       cancelLabel: 'Stay',
       danger: true,
     });
@@ -132,31 +130,88 @@ export function mount(root) {
         stopRound();
         view.replaceChildren(
           ErrorState({
-            icon: '🚪',
             title: 'This room has closed.',
-            message: 'The room ended or you were removed after being away too long.',
+            message: 'The room ended, or you were removed after being away too long.',
             actions: [
               { label: 'Join another room', primary: true, onClick: () => navigate('multiplayer') },
-              { label: 'Home', onClick: () => navigate('home') },
+              { label: 'Back to the booklet', onClick: () => navigate('home') },
             ],
           }),
         );
         closed = true;
       } else {
-        statusEl.textContent = 'Reconnecting…';
+        statusEl.textContent = '· Reconnecting…';
       }
     };
   }
 
-  // ── Rendering ─────────────────────────────────────────────────────
+  // ── Helpers ───────────────────────────────────────────────────────
   const me = () => state.players.find((p) => p.id === state.you);
   const isHost = () => state.hostId === state.you;
 
+  function sourceCatalog(s) {
+    return s.source.kind === 'quiz' ? catalog('GTS-Q', s.source.title) : catalog(s.source.code, s.source.name);
+  }
+
+  function renderInfo() {
+    const mine = me();
+    const q = state.question;
+    if (state.phase === 'question' || state.phase === 'reveal') {
+      infoEl.innerHTML = `Track ${pad2(q.number)} / ${pad2(q.total)} <span class="ln-strip__dot">·</span> ${formatNumber(mine?.score ?? 0)} pts${mine?.streak > 1 ? ` <span class="ln-strip__dot">·</span> Streak ${mine.streak}` : ''}`;
+    } else {
+      infoEl.textContent = `${state.players.length} in the room`;
+    }
+  }
+
+  function renderTime(seconds) {
+    timeEl.innerHTML = seconds == null ? '' : seconds <= LIVE_AT ? live(pad2(seconds)) : `<span class="ln-strip__time">${pad2(seconds)}</span>`;
+    disc?.setSeconds(seconds);
+  }
+
+  function playerRows(players, { answered = false } = {}) {
+    return players
+      .map((p, i) => {
+        const status = answered
+          ? p.answered ? mark('correct', 'Locked in') : `<span class="ln-label-caps ln-muted">${p.connected ? 'Thinking' : 'Away'}</span>`
+          : `<span class="ln-label-caps ln-muted">${p.id === state.hostId ? 'Host' : p.id === state.you ? 'You' : p.connected ? 'Ready' : 'Away'}</span>`;
+        return `
+          <div class="gts-player ${p.connected ? '' : 'gts-player--away'}">
+            <span class="ln-data-md ln-muted">${pad2(i + 1)}</span>
+            ${avatar(p.name, { away: !p.connected })}
+            <span class="gts-player__name ln-body-md">${esc(p.name)}${p.id === state.you && p.id === state.hostId ? ' <span class="ln-label-caps ln-muted">(you)</span>' : ''}</span>
+            ${status}
+          </div>`;
+      })
+      .join('');
+  }
+
+  function scoreTable(players, { withRound = false } = {}) {
+    return `
+      <div class="ln-board-wrap"><table class="ln-board">
+        <thead><tr><th scope="col">No.</th><th scope="col">Player</th>${withRound ? '<th scope="col" class="num">This track</th>' : '<th scope="col" class="num hide-sm">Named</th><th scope="col" class="num hide-sm">Best streak</th><th scope="col" class="num hide-sm">Avg.</th>'}<th scope="col" class="num">Score</th></tr></thead>
+        <tbody>
+          ${players.map((p, i) => `
+            <tr class="${p.id === state.you ? 'is-you' : ''}">
+              <td class="ln-board__rank ${i < 3 && !withRound ? 'is-top' : ''}">${pad2(i + 1)}</td>
+              <td><span class="ln-board__who">${avatar(p.name, { away: !p.connected })}<span class="ln-board__name">${esc(p.name)}</span>${p.id === state.you ? '<span class="ln-board__you">You</span>' : ''}</span></td>
+              ${withRound
+                ? `<td class="num">${p.lastResult?.correct ? mark('correct', `+${p.lastResult.points}`) : '<span class="ln-data-sm ln-muted">—</span>'}</td>`
+                : `<td class="ln-board__data num hide-sm">${p.correct}/${p.answeredCount}</td><td class="ln-board__data num hide-sm">${p.bestStreak}</td><td class="ln-board__data num hide-sm">${p.avgMs == null ? '—' : `${formatSeconds(p.avgMs)}s`}</td>`}
+              <td class="ln-board__score">${formatNumber(p.score)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table></div>`;
+  }
+
+  // ── Rendering ─────────────────────────────────────────────────────
   function render() {
+    renderInfo();
     const key = `${state.phase}:${state.question?.number ?? ''}`;
     if (key !== renderedKey) {
       renderedKey = key;
       if (state.phase !== 'question') stopRound();
+      if (state.phase !== 'question' && state.phase !== 'reveal') renderTime(null);
+      hostControls = null;
       if (state.phase === 'lobby') renderLobby();
       else if (state.phase === 'starting') renderStarting();
       else if (state.phase === 'question') renderQuestion();
@@ -165,52 +220,40 @@ export function mount(root) {
     } else {
       updateLive();
     }
-    if (state.message && state.message !== render.lastMessage) {
-      render.lastMessage = state.message;
+    if (state.message && state.message !== lastMessage) {
+      lastMessage = state.message;
       toast(state.message);
     }
-  }
-
-  function playerList(players, { showAnswered = false } = {}) {
-    return `<ul class="player-list">${players
-      .map((p) => `
-        <li class="player ${p.id === state.you ? 'is-you' : ''} ${p.connected ? '' : 'is-away'}">
-          ${avatar(p)}
-          <span class="player-name">${esc(p.name)}${p.id === state.hostId ? ' <span class="chip" title="Host">Host</span>' : ''}${p.id === state.you ? ' <span class="muted">(you)</span>' : ''}</span>
-          ${showAnswered ? `<span class="answered-mark ${p.answered ? 'on' : ''}">${p.answered ? '✓ Locked in' : p.connected ? 'Thinking…' : 'Away'}</span>` : `<span class="player-state">${p.connected ? '' : 'Away'}</span>`}
-        </li>`)
-      .join('')}</ul>`;
-  }
-
-  function sourceLabel(s) {
-    return s.source.kind === 'quiz' ? `🎼 ${esc(s.source.title)}` : `${s.source.icon} ${esc(s.source.name)}`;
   }
 
   function renderLobby() {
     const s = state.settings;
     view.replaceChildren(html(`
-      <section class="lobby">
-        <div class="lobby-hero card">
-          <p class="eyebrow">Room code</p>
-          <h1 class="big-code" aria-label="Room code ${state.code.split('').join(' ')}">${esc(state.code)}</h1>
-          <p class="muted">Friends open <strong>${esc(location.host)}</strong> → Play with friends, and enter this code.</p>
-          <button type="button" class="btn btn-ghost" data-invite>Copy invite link</button>
-        </div>
-        <div class="lobby-grid">
-          <section class="card lobby-players" aria-labelledby="players-title">
-            <h2 id="players-title" class="panel-title">Players <span class="muted" data-count>${state.players.length}/12</span></h2>
-            <div data-players>${playerList(state.players)}</div>
-          </section>
-          <section class="card lobby-settings" aria-labelledby="settings-title">
-            <h2 id="settings-title" class="panel-title">Game</h2>
+      <div class="gts-split">
+        <section class="gts-stack">
+          <div class="gts-stack-sm">
+            <p class="ln-label-caps ln-muted">Room code</p>
+            <button type="button" class="gts-code" data-code aria-label="Room code ${state.code.split('').join(' ')}. Copy invite link.">
+              <span class="ln-readout">${esc(state.code)}</span>
+            </button>
+            ${waveform({ bars: 28, height: 18, playing: true, seed: state.code.charCodeAt(0) })}
+            <p class="ln-body-sm ln-muted">Friends open <strong>${esc(location.host)}</strong>, choose <em>With friends</em> and type the code. Or <button type="button" class="ln-btn ln-btn--quiet ln-btn--small" data-invite>copy the invite link</button></p>
+          </div>
+          <div>
+            <p class="ln-section-label" data-count>In the room · ${state.players.length}</p>
+            <div data-players>${playerRows(state.players)}</div>
+          </div>
+        </section>
+        <section class="gts-stack">
+          <div class="ln-sleeve gts-stack">
+            <h2 class="ln-title-md">Room settings</h2>
             <div data-settings></div>
-          </section>
-        </div>
-        <div class="lobby-actions" data-actions></div>
-      </section>`));
-    view.querySelector('[data-invite]').addEventListener('click', async () => {
-      toast((await copyText(inviteLink())) ? 'Invite link copied.' : `Invite link: ${inviteLink()}`);
-    });
+          </div>
+          <div class="ln-btn-row" data-actions></div>
+        </section>
+      </div>`));
+    view.querySelector('[data-code]').addEventListener('click', copyInvite);
+    view.querySelector('[data-invite]').addEventListener('click', copyInvite);
 
     const settingsSlot = view.querySelector('[data-settings]');
     const actions = view.querySelector('[data-actions]');
@@ -227,7 +270,7 @@ export function mount(root) {
           toast(err.message);
         }
       });
-      const start = html('<button type="button" class="btn btn-primary btn-xl" data-start>Start game</button>');
+      const start = html('<button type="button" class="ln-btn ln-btn--primary" data-start>Start the record</button>');
       start.addEventListener('click', async () => {
         start.disabled = true;
         unlockAudio();
@@ -243,79 +286,73 @@ export function mount(root) {
       settingsForm = null;
       settingsSlot.innerHTML = settingsSummary(s);
       const host = state.players.find((p) => p.id === state.hostId);
-      actions.innerHTML = `<p class="waiting-note"><span class="pulse-dot" aria-hidden="true"></span> Waiting for ${esc(host?.name ?? 'the host')} to start…</p>`;
+      actions.innerHTML = `<p class="gts-waiting">${equalizer({ playing: true })}<span class="ln-body-md ln-italic">Waiting for ${esc(host?.name ?? 'the host')} to drop the needle…</span></p>`;
     }
   }
 
   function settingsSummary(s) {
-    return `
-      <dl class="summary-list">
-        <div><dt>Mode</dt><dd>${esc(s.modeName)} · ${s.timeLimitSec}s per song</dd></div>
-        <div><dt>Songs</dt><dd>${sourceLabel(s)}</dd></div>
-        <div><dt>Difficulty</dt><dd>${esc(s.difficultyName)} · ${s.previewSec}s preview</dd></div>
-        <div><dt>Length</dt><dd>${s.questionCount} songs</dd></div>
-      </dl>`;
+    const row = (label, value) => `<div class="gts-opt" style="cursor:default"><span class="ln-label-caps ln-muted">${label}</span><span class="ln-body-md">${value}</span></div>`;
+    return `<div>
+      ${row('Record', sourceCatalog(s))}
+      ${row('Format', `${esc(s.modeName)} · ${s.timeLimitSec}s per track`)}
+      ${row('Difficulty', `${esc(s.difficultyName)} · ${s.previewSec}s clip`)}
+      ${row('Tracks', `<span class="ln-data-md">${s.questionCount}</span>`)}
+    </div>`;
   }
 
   function renderStarting() {
     view.replaceChildren(html(`
-      <section class="room-center">
-        <div class="waveform-slot"></div>
-        <h1>Loading songs…</h1>
-        <p class="muted">${sourceLabel(state.settings)} · ${state.settings.questionCount} songs</p>
+      <section class="gts-empty" style="padding-top:96px">
+        ${waveform({ bars: 40, height: 36, playing: true })}
+        <h1 class="ln-headline-lg">Cueing the records…</h1>
+        <p class="ln-label-caps ln-muted">${sourceCatalog(state.settings)} · ${state.settings.questionCount} tracks</p>
       </section>`));
-    const wave = Waveform({ bars: 24 });
-    wave.setState('loading');
-    view.querySelector('.waveform-slot').append(wave.element);
   }
 
   function renderQuestion() {
     const q = state.question;
     myChoice = q.yourChoice;
-    const timer = Timer();
-    const wave = Waveform({ bars: 32 });
+    disc = Disc();
     view.replaceChildren(html(`
-      <section class="round">
-        <div class="round-head">
-          <p class="round-count">Song <strong>${q.number}</strong> <span class="muted">/ ${q.total}</span></p>
-          <div class="timer-slot"></div>
-        </div>
-        <div class="stage stage-compact">
-          <div class="stage-body">
-            <div class="stage-wave"></div>
-            <p class="stage-status">Get ready…</p>
-            <button type="button" class="btn btn-primary play-preview" hidden>▶ Tap to hear the song</button>
+      <div class="gts-game">
+        <aside class="gts-game__player">
+          <div data-disc></div>
+          <div class="gts-player-status" data-play-status><span class="ln-label-caps ln-muted">Get ready…</span></div>
+          <button type="button" class="ln-btn ln-btn--primary" data-play hidden>▶ Tap to hear the clip</button>
+          ${sourceCatalog(state.settings)}
+        </aside>
+        <section class="gts-game__sheet">
+          <h2 class="ln-headline-md gts-question">Which song is this?</h2>
+          <div class="ln-list" role="group" aria-label="Answer choices" data-answers></div>
+          <p class="gts-game__foot ln-label-caps ln-muted" data-note>Keys 1–4 to answer</p>
+          <div style="margin-top:32px">
+            <p class="ln-section-label">In the room</p>
+            <div data-players>${playerRows(state.players, { answered: true })}</div>
           </div>
-        </div>
-        <div class="answers" role="group" aria-label="Answer choices"></div>
-        <p class="round-note" aria-live="polite"></p>
-        <section class="round-players" aria-label="Players">${playerList(state.players, { showAnswered: true })}</section>
-      </section>`));
-    view.querySelector('.timer-slot').append(timer.element);
-    view.querySelector('.stage-wave').append(wave.element);
-    timer.reset(q.endsAt - q.startsAt);
-    wave.setState('loading');
+        </section>
+      </div>`));
+    view.querySelector('[data-disc]').append(disc.element);
+    const status = view.querySelector('[data-play-status]');
+    const playBtn = view.querySelector('[data-play]');
 
-    answerButtons = q.options.map((song, index) => AnswerButton({ song, index, onSelect: choose }));
-    const answersEl = view.querySelector('.answers');
-    answersEl.replaceChildren(...answerButtons.map((b) => b.element));
-    answersEl.classList.add('answers-in');
+    rows = q.options.map((opt, i) => TrackRow({ number: i + 1, title: opt.title, artist: opt.artist, onSelect: choose }));
+    view.querySelector('[data-answers]').replaceChildren(...rows.map((r) => r.element));
     setLocked(myChoice != null);
-    if (myChoice != null) answerButtons[myChoice].setState('picked');
+    if (myChoice != null) rows[myChoice].setState('picked');
 
-    const status = view.querySelector('.stage-status');
-    const playBtn = view.querySelector('.play-preview');
     const source = q.previewUrl && app.settings.audioSource !== 'offline' ? { kind: 'url', url: q.previewUrl } : { kind: 'synth', seed: q.synthSeed ?? q.number };
     const loading = audioManager.loadResolved(source).catch(() => null);
+
+    const setPlaying = (on) => {
+      disc.setSpinning(on && app.settings.animations);
+      status.innerHTML = on ? `${live('Now playing')} ${equalizer({ playing: true })}` : '<span class="ln-label-caps ln-muted">Clip ended · lock it in</span>';
+    };
 
     const startPlayback = async () => {
       const prepared = await loading;
       if (renderedKey !== `question:${q.number}`) return;
-      wave.setState('playing');
-      status.textContent = 'Listen carefully…';
       if (!prepared) {
-        status.textContent = 'Couldn’t load the audio — guess from the options!';
-        wave.setState('idle');
+        status.innerHTML = '<span class="ln-label-caps ln-muted">No audio · guess from the titles</span>';
         return;
       }
       const lateSec = Math.max(0, (serverNow() - q.startsAt) / 1000);
@@ -325,15 +362,13 @@ export function mount(root) {
         await audioManager.play(remaining, {
           offsetSec: q.offsetSec + lateSec,
           onEnd: () => {
-            if (renderedKey === `question:${q.number}`) {
-              wave.setState('idle');
-              status.textContent = 'Preview ended — lock in your answer!';
-            }
+            if (renderedKey === `question:${q.number}`) setPlaying(false);
           },
         });
+        setPlaying(true);
       } catch (err) {
         if (err.code === 'AUTOPLAY_BLOCKED') {
-          status.textContent = 'Your browser paused the audio.';
+          status.innerHTML = '<span class="ln-label-caps ln-muted">Your browser paused the audio</span>';
           playBtn.hidden = false;
           playBtn.onclick = async () => {
             playBtn.hidden = true;
@@ -341,7 +376,7 @@ export function mount(root) {
             startPlayback();
           };
         } else {
-          status.textContent = 'Couldn’t play the audio — guess from the options!';
+          status.innerHTML = '<span class="ln-label-caps ln-muted">No audio · guess from the titles</span>';
         }
       }
     };
@@ -351,13 +386,13 @@ export function mount(root) {
       if (myChoice == null) setLocked(false);
       countdown = createCountdown({
         durationMs: Math.max(0, q.endsAt - serverNow()),
-        onTick: (remaining) => timer.update(remaining, q.endsAt - q.startsAt),
         onWholeSecond: (s) => {
-          if (s <= 3 && s > 0) sfx.play('tick');
+          renderTime(s);
+          if (s <= LIVE_AT && s > 0) sfx.play('tick');
         },
         onExpire: () => {
           setLocked(true);
-          if (myChoice == null) view.querySelector('.round-note').textContent = 'Time’s up!';
+          if (myChoice == null) view.querySelector('[data-note]').textContent = 'Out of time';
         },
       });
       countdown.start();
@@ -366,10 +401,13 @@ export function mount(root) {
     const untilStart = q.startsAt - serverNow();
     if (untilStart > 0) {
       setLocked(true);
-      // Lead-in: a short "3, 2, 1" while everyone's audio buffers.
+      // Lead-in: a short count while everyone's audio buffers.
       const tick = () => {
         const left = Math.ceil((q.startsAt - serverNow()) / 1000);
-        if (left > 0) status.textContent = `Get ready… ${left}`;
+        if (left > 0) {
+          status.innerHTML = `<span class="ln-label-caps ln-muted">Needle drops in ${left}</span>`;
+          disc.setSeconds(null);
+        }
       };
       tick();
       leadInTimer = setInterval(tick, 200);
@@ -380,12 +418,12 @@ export function mount(root) {
     } else {
       beginRound();
     }
-    announce(`Song ${q.number} of ${q.total}.`);
+    announce(`Track ${q.number} of ${q.total}.`);
   }
 
   function setLocked(locked) {
-    answerButtons.forEach((b) => b.setDisabled(locked));
-    view.querySelector('.answers')?.setAttribute('aria-disabled', String(locked));
+    rows.forEach((r) => r.setDisabled(locked));
+    view.querySelector('[data-answers]')?.setAttribute('aria-disabled', String(locked));
   }
 
   async function choose(index) {
@@ -393,7 +431,7 @@ export function mount(root) {
     if (!q || state.phase !== 'question' || myChoice != null) return;
     myChoice = index;
     setLocked(true);
-    answerButtons[index].setState('picked');
+    rows[index].setState('picked');
     sfx.play('click');
     try {
       await action('answer', { questionNumber: q.number, choice: index });
@@ -401,7 +439,7 @@ export function mount(root) {
     } catch (err) {
       if (err.code === 'early') {
         myChoice = null;
-        answerButtons[index].setState('');
+        rows[index].setState('idle');
         setLocked(false);
       }
       toast(err.message);
@@ -411,9 +449,9 @@ export function mount(root) {
   function updateLive() {
     if (state.phase === 'lobby') {
       const list = view.querySelector('[data-players]');
-      if (list) list.innerHTML = playerList(state.players);
+      if (list) list.innerHTML = playerRows(state.players);
       const count = view.querySelector('[data-count]');
-      if (count) count.textContent = `${state.players.length}/12`;
+      if (count) count.textContent = `In the room · ${state.players.length}`;
       if (!isHost()) {
         const slot = view.querySelector('[data-settings]');
         if (slot) slot.innerHTML = settingsSummary(state.settings);
@@ -421,14 +459,14 @@ export function mount(root) {
         renderLobby(); // we just became the host
       }
     } else if (state.phase === 'question') {
-      const players = view.querySelector('.round-players');
-      if (players) players.innerHTML = playerList(state.players, { showAnswered: true });
+      const players = view.querySelector('[data-players]');
+      if (players) players.innerHTML = playerRows(state.players, { answered: true });
       const answered = state.players.filter((p) => p.answered).length;
-      const note = view.querySelector('.round-note');
-      if (note && myChoice != null) note.textContent = `Locked in! ${answered} of ${state.players.length} answered.`;
+      const note = view.querySelector('[data-note]');
+      if (note && myChoice != null) note.textContent = `Locked in · ${answered} of ${state.players.length} answered`;
     } else if (state.phase === 'reveal' || state.phase === 'final') {
-      const hostSlot = view.querySelector('[data-host-controls]');
-      if (hostSlot && isHost() && !hostSlot.childElementCount) render.hostControls?.(hostSlot);
+      const slot = view.querySelector('[data-host-controls]');
+      if (slot && isHost() && !slot.childElementCount) hostControls?.(slot);
     }
   }
 
@@ -436,127 +474,100 @@ export function mount(root) {
     const q = state.question;
     const mine = me()?.lastResult;
     const song = q.song;
+    const animate = app.settings.animations;
+    disc = Disc();
     view.replaceChildren(html(`
-      <section class="round reveal">
-        <div class="reveal-top">
-          <img class="reveal-art" src="${esc(song.artwork || generatedArtwork(typeof song.id === 'number' ? song.id : q.number))}" alt="${esc(song.album)} cover">
-          <div>
-            <p class="eyebrow">Song ${q.number} of ${q.total}</p>
-            <p class="reveal-title">${esc(song.title)}</p>
-            <p class="reveal-artist">${esc(song.artist)}</p>
-            <p class="reveal-meta">${esc(song.album)}${song.year ? ` · ${song.year}` : ''}</p>
+      <div class="gts-game">
+        <aside class="gts-game__player">
+          <div data-disc></div>
+          <span class="ln-label-caps ln-muted">Clip ended</span>
+          ${sourceCatalog(state.settings)}
+        </aside>
+        <section class="gts-game__sheet">
+          <div class="gts-reveal">
+            ${creditLine({ title: song.title, artist: song.artist, album: song.album, year: song.year, size: 'lg' })}
+            <div class="ln-btn-row">
+              ${mine
+                ? mine.correct
+                  ? `${mark('correct', `+ ${formatNumber(mine.points)} pts`, { animate })}<span class="ln-data-sm ln-muted">IN ${formatSeconds(mine.elapsedMs)}S${mine.multiplier > 1 ? ` · ${mine.multiplier}× STREAK` : ''}</span>`
+                  : mark('wrong', mine.timedOut ? 'Out of time' : 'No points')
+                : '<span class="ln-label-caps ln-muted">Listening in on this one</span>'}
+            </div>
           </div>
-        </div>
-        <div class="my-result ${mine?.correct ? 'is-correct' : 'is-wrong'}">
-          ${mine
-            ? mine.correct
-              ? `<strong>✓ Correct!</strong> <span class="feedback-points">+${mine.points}</span> <span class="muted">in ${formatSeconds(mine.elapsedMs)}s${mine.multiplier > 1 ? ` · ${mine.multiplier}× streak` : ''}</span>`
-              : `<strong>✗ ${mine.timedOut ? 'No answer' : 'Not quite'}</strong> <span class="muted">— streak reset</span>`
-            : '<strong>Watching this round</strong>'}
-        </div>
-        <div class="answers answers-reveal" aria-label="Answers"></div>
-        <section class="card scoreboard" aria-labelledby="scores-title">
-          <h2 id="scores-title" class="panel-title">Scores</h2>
-          ${scoreboard(state.players, { withRound: true })}
+          <div class="ln-list" data-answers></div>
+          <div style="margin-top:32px">
+            <p class="ln-section-label">Standings</p>
+            ${scoreTable(state.players, { withRound: true })}
+          </div>
+          <div class="gts-game__foot">
+            <div data-host-controls></div>
+            <span class="ln-label-caps ln-muted" data-next-in></span>
+          </div>
         </section>
-        <div class="reveal-footer">
-          <p class="muted" data-next-in></p>
-          <div data-host-controls></div>
-        </div>
-      </section>`));
+      </div>`));
+    view.querySelector('[data-disc]').append(disc.element);
+    disc.showArt(song.artwork || generatedArtwork(typeof song.id === 'number' ? song.id : q.number), `${song.album} cover`);
 
-    const answersEl = view.querySelector('.answers');
+    const answersEl = view.querySelector('[data-answers]');
     q.options.forEach((opt, i) => {
-      const btn = AnswerButton({ song: opt, index: i, onSelect: () => {} });
-      btn.setDisabled(true);
-      if (i === q.correctIndex) btn.setState(mine?.choice === i ? 'correct' : 'missed');
-      else if (mine?.choice === i) btn.setState('wrong');
-      else btn.setState('dimmed');
+      const row = TrackRow({ number: i + 1, title: opt.title, artist: opt.artist });
+      row.setDisabled(true);
+      if (i === q.correctIndex) row.setState(mine?.choice === i ? 'correct' : 'missed', { animate });
+      else if (mine?.choice === i) row.setState('wrong');
+      else row.setState('dimmed');
       const pickers = state.players.filter((p) => p.lastResult?.choice === i);
       if (pickers.length) {
-        btn.element.append(html(`<span class="pickers" aria-label="Picked by ${esc(pickers.map((p) => p.name).join(', '))}">${pickers.slice(0, 5).map((p) => avatar(p, 'avatar-xs')).join('')}</span>`));
+        row.side.insertAdjacentHTML('afterbegin', `<span class="gts-pickers" aria-label="Picked by ${esc(pickers.map((p) => p.name).join(', '))}">${pickers.slice(0, 5).map((p) => avatar(p.name, { size: 'xs' })).join('')}</span>`);
       }
-      answersEl.append(btn.element);
+      answersEl.append(row.element);
     });
 
-    if (mine?.correct) {
-      sfx.play('correct');
-      celebrate(view.querySelector('.my-result'));
-    } else if (mine) {
-      sfx.play('wrong');
-    }
+    if (mine) sfx.play(mine.correct ? 'correct' : 'wrong');
 
     const nextIn = view.querySelector('[data-next-in]');
     const tick = () => {
       const left = Math.max(0, Math.ceil((state.revealEndsAt - serverNow()) / 1000));
-      nextIn.textContent = q.number >= q.total ? `Final results in ${left}…` : `Next song in ${left}…`;
+      nextIn.textContent = q.number >= q.total ? `Final standings in ${left}` : `Next track in ${left}`;
     };
     tick();
     revealTimer = setInterval(tick, 250);
 
-    render.hostControls = (slot) => {
-      const btn = html(`<button type="button" class="btn btn-primary">${q.number >= q.total ? 'Show results' : 'Next song'} →</button>`);
+    hostControls = (slot) => {
+      const btn = html(`<button type="button" class="ln-btn ln-btn--primary">${q.number >= q.total ? 'Final standings' : 'Next track'}</button>`);
       btn.addEventListener('click', () => action('next').catch((err) => toast(err.message)));
       slot.replaceChildren(btn);
     };
-    if (isHost()) render.hostControls(view.querySelector('[data-host-controls]'));
+    if (isHost()) hostControls(view.querySelector('[data-host-controls]'));
     announce(`${song.title} by ${song.artist}. ${mine?.correct ? `You got it, plus ${mine.points} points.` : 'You missed this one.'}`);
-  }
-
-  function scoreboard(players, { withRound = false } = {}) {
-    return `<ol class="score-list">${players
-      .map((p, i) => `
-        <li class="score-row ${p.id === state.you ? 'is-you' : ''}">
-          <span class="score-rank">${i + 1}</span>
-          ${avatar(p)}
-          <span class="player-name">${esc(p.name)}${p.streak >= 2 ? ` <span class="streak-hot">🔥${p.streak}</span>` : ''}</span>
-          ${withRound ? `<span class="round-points ${p.lastResult?.correct ? 'up' : ''}">${p.lastResult?.correct ? `+${p.lastResult.points}` : '—'}</span>` : ''}
-          <span class="score-total">${formatNumber(p.score)}</span>
-        </li>`)
-      .join('')}</ol>`;
   }
 
   function renderFinal() {
     const players = state.players;
     const podium = players.slice(0, 3);
     const myRank = players.findIndex((p) => p.id === state.you) + 1;
+    const winner = players[0];
     view.replaceChildren(html(`
-      <section class="final">
-        <p class="eyebrow">${sourceLabel(state.settings)} · ${esc(state.settings.modeName)}</p>
-        <h1>${myRank === 1 ? 'You win!' : 'Final results'}</h1>
-        <ol class="podium">
+      <section class="gts-stack" style="padding-top:48px">
+        <div class="gts-stack-sm">
+          <p class="ln-label-caps ln-muted">Final standings · ${sourceCatalog(state.settings)} · ${esc(state.settings.modeName)}</p>
+          <h1 class="ln-display">${myRank === 1 ? 'You take the room.' : `${esc(winner.name)} takes the room.`}</h1>
+          ${waveform({ bars: 48, height: 26, playing: true })}
+        </div>
+        <ol class="gts-podium" style="list-style:none;margin:0;padding:0">
           ${podium.map((p, i) => `
-            <li class="podium-spot place-${i + 1} ${p.id === state.you ? 'is-you' : ''}">
-              ${avatar(p, 'avatar-lg')}
-              <span class="podium-name">${esc(p.name)}</span>
-              <span class="podium-score" data-score="${p.score}">${formatNumber(p.score)}</span>
-              <span class="podium-block"><span aria-hidden="true">${MEDALS[i]}</span><span class="sr-only">Place ${i + 1}</span></span>
+            <li class="gts-podium__spot">
+              <span class="ln-label-caps ln-muted">${['First', 'Second', 'Third'][i]}${p.id === state.you ? ' · You' : ''}</span>
+              <span class="ln-headline-md">${esc(p.name)}</span>
+              <span class="ln-readout">${formatNumber(p.score)}</span>
             </li>`).join('')}
         </ol>
-        <div class="card final-table">
-          <div class="table-scroll">
-            <table class="board-table">
-              <thead><tr><th scope="col">#</th><th scope="col">Player</th><th scope="col" class="num">Score</th><th scope="col" class="num">Correct</th><th scope="col" class="num hide-sm">Best streak</th><th scope="col" class="num hide-sm">Avg. time</th></tr></thead>
-              <tbody>
-                ${players.map((p, i) => `
-                  <tr class="${p.id === state.you ? 'is-you' : ''}">
-                    <td class="rank">${i + 1}</td>
-                    <td class="player">${esc(p.name)}</td>
-                    <td class="num score">${formatNumber(p.score)}</td>
-                    <td class="num">${p.correct}/${p.answeredCount}</td>
-                    <td class="num hide-sm">${p.bestStreak}</td>
-                    <td class="num hide-sm">${p.avgMs == null ? '—' : `${formatSeconds(p.avgMs)}s`}</td>
-                  </tr>`).join('')}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="final-actions" data-host-controls></div>
-        ${isHost() ? '' : '<p class="waiting-note muted">The host can start another round.</p>'}
+        ${scoreTable(players)}
+        <div class="ln-btn-row" data-host-controls></div>
+        ${isHost() ? '' : '<p class="ln-body-md ln-italic ln-muted">The host can put on another record.</p>'}
       </section>`));
-    render.hostControls = (slot) => {
-      const again = html('<button type="button" class="btn btn-primary btn-lg">Play again</button>');
-      const lobby = html('<button type="button" class="btn btn-ghost btn-lg">Change settings</button>');
+    hostControls = (slot) => {
+      const again = html('<button type="button" class="ln-btn ln-btn--primary">Play again</button>');
+      const lobby = html('<button type="button" class="ln-btn ln-btn--secondary">Change settings</button>');
       again.addEventListener('click', () => {
         unlockAudio();
         action('start').catch((err) => toast(err.message));
@@ -564,13 +575,8 @@ export function mount(root) {
       lobby.addEventListener('click', () => action('lobby').catch((err) => toast(err.message)));
       slot.replaceChildren(again, lobby);
     };
-    if (isHost()) render.hostControls(view.querySelector('[data-host-controls]'));
-    view.querySelectorAll('.podium-score').forEach((el) => {
-      el.dataset.value = '0';
-      animateNumber(el, Number(el.dataset.score), 1000);
-    });
+    if (isHost()) hostControls(view.querySelector('[data-host-controls]'));
     sfx.play('complete');
-    if (myRank === 1 && players.length > 1) celebrate(view.querySelector('.podium .is-you'), 16);
     announce(`Game over. You finished ${myRank} of ${players.length}.`);
   }
 
@@ -587,10 +593,10 @@ export function mount(root) {
     if (e.target.closest?.('input, textarea, select')) return;
     const key = e.key.toLowerCase();
     if (state?.phase === 'question' && key in KEY_TO_INDEX) {
-      const btn = answerButtons[KEY_TO_INDEX[key]];
-      if (btn && !btn.element.disabled) {
+      const row = rows[KEY_TO_INDEX[key]];
+      if (row && !row.element.disabled) {
         e.preventDefault();
-        btn.element.click();
+        row.element.click();
       }
     } else if (key === 'm') {
       muteBtn.click();
@@ -598,15 +604,14 @@ export function mount(root) {
   }
   window.addEventListener('keydown', onKeyDown);
 
-  view.append(html('<p class="muted room-connecting">Connecting to the room…</p>'));
   connect();
 
   return {
     async beforeLeave() {
       if (closed || !state || !['starting', 'question', 'reveal'].includes(state.phase)) return true;
       return confirmDialog({
-        title: 'Leave the game?',
-        message: 'You’ll stay in the room and can rejoin from “Play with friends” while it’s open.',
+        title: 'Leave the round?',
+        message: 'You’ll keep your seat and can rejoin from With friends while the room is open.',
         confirmLabel: 'Leave for now',
         cancelLabel: 'Keep playing',
       });

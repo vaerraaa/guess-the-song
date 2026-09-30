@@ -22,7 +22,7 @@ export const MODES = {
   classic: {
     id: 'classic',
     name: 'Classic',
-    icon: '🎵',
+    format: 'LP',
     tagline: '10 songs · 10 seconds each',
     description: 'The original. Ten songs, four choices, ten seconds to name each one.',
     questionCount: 10,
@@ -33,7 +33,7 @@ export const MODES = {
   speed: {
     id: 'speed',
     name: 'Speed',
-    icon: '⚡',
+    format: '7-inch',
     tagline: '10 songs · 5 seconds each',
     description: 'Half the time, double the pressure. Fast answers earn a bigger bonus.',
     questionCount: 10,
@@ -44,7 +44,7 @@ export const MODES = {
   endless: {
     id: 'endless',
     name: 'Endless',
-    icon: '♾️',
+    format: 'Loop',
     tagline: 'Keep going · 3 lives',
     description: 'No finish line. Keep naming songs until you miss three.',
     questionCount: Infinity,
@@ -81,24 +81,24 @@ export const DIFFICULTIES = {
 };
 
 // Categories are just filters over the song list. Add one here and it appears in the UI
-// automatically once enough songs match it.
+// automatically once enough songs match it. `code` is its catalog number, `note` its liner note.
 export const CATEGORIES = [
-  { id: 'all', name: 'All Songs', icon: '🎵', filter: () => true },
-  { id: 'pop', name: 'Pop', icon: '🎤', filter: (s) => s.genre === 'Pop' },
-  { id: 'rock', name: 'Rock', icon: '🎸', filter: (s) => s.genre === 'Rock' },
-  { id: 'hiphop', name: 'Hip-Hop', icon: '🎧', filter: (s) => s.genre === 'Hip-Hop' },
-  { id: 'electronic', name: 'Electronic', icon: '🎛️', filter: (s) => s.genre === 'Electronic' },
-  { id: 'kpop', name: 'K-Pop', icon: '💜', filter: (s) => s.genre === 'K-Pop' },
-  { id: 'latin', name: 'Latin', icon: '💃', filter: (s) => s.genre === 'Latin' },
-  { id: 'country', name: 'Country', icon: '🤠', filter: (s) => s.genre === 'Country' },
-  { id: 'international', name: 'International', icon: '🌎', filter: (s) => hasTag(s, 'international') },
-  { id: 'indian', name: 'Indian', icon: '🪔', filter: (s) => s.country === 'IN' },
-  { id: 'movie', name: 'Movie Songs', icon: '🎬', filter: (s) => hasTag(s, 'movie') },
-  { id: '80s', name: '80s', icon: '📼', filter: (s) => s.year >= 1980 && s.year <= 1989 },
-  { id: '90s', name: '90s', icon: '💿', filter: (s) => s.year >= 1990 && s.year <= 1999 },
-  { id: '2000s', name: '2000s', icon: '🕺', filter: (s) => s.year >= 2000 && s.year <= 2009 },
-  { id: '2010s', name: '2010s', icon: '📀', filter: (s) => s.year >= 2010 && s.year <= 2019 },
-  { id: '2020s', name: '2020s', icon: '🔥', filter: (s) => s.year >= 2020 },
+  { id: 'all', name: 'All Songs', code: 'GTS-100', note: 'Every record in the crate', filter: () => true },
+  { id: 'pop', name: 'Pop', code: 'GTS-101', note: 'Chart singles across four decades', filter: (s) => s.genre === 'Pop' },
+  { id: 'rock', name: 'Rock', code: 'GTS-305', note: 'Riffs you already know', filter: (s) => s.genre === 'Rock' },
+  { id: 'hiphop', name: 'Hip-Hop', code: 'GTS-102', note: 'Hooks, bars and features', filter: (s) => s.genre === 'Hip-Hop' },
+  { id: 'electronic', name: 'Electronic', code: 'GTS-103', note: 'Drops and festival anthems', filter: (s) => s.genre === 'Electronic' },
+  { id: 'kpop', name: 'K-Pop', code: 'GTS-104', note: 'Idol groups and soloists', filter: (s) => s.genre === 'K-Pop' },
+  { id: 'latin', name: 'Latin', code: 'GTS-105', note: 'Reggaetón and pop latino', filter: (s) => s.genre === 'Latin' },
+  { id: 'country', name: 'Country', code: 'GTS-106', note: 'Nashville and beyond', filter: (s) => s.genre === 'Country' },
+  { id: 'international', name: 'International', code: 'GTS-120', note: 'Beyond the English charts', filter: (s) => hasTag(s, 'international') },
+  { id: 'indian', name: 'Indian', code: 'GTS-121', note: 'Bollywood, Punjabi and South Indian hits', filter: (s) => s.country === 'IN' },
+  { id: 'movie', name: 'Movie Songs', code: 'GTS-130', note: 'Soundtracks, Hollywood to Bollywood', filter: (s) => hasTag(s, 'movie') },
+  { id: '80s', name: '80s', code: 'GTS-210', note: 'Synths, gated drums', filter: (s) => s.year >= 1980 && s.year <= 1989 },
+  { id: '90s', name: '90s', code: 'GTS-220', note: 'Boy bands, grunge and R&B', filter: (s) => s.year >= 1990 && s.year <= 1999 },
+  { id: '2000s', name: '2000s', code: 'GTS-230', note: 'Ringtones and pop-punk', filter: (s) => s.year >= 2000 && s.year <= 2009 },
+  { id: '2010s', name: '2010s', code: 'GTS-240', note: 'The streaming years', filter: (s) => s.year >= 2010 && s.year <= 2019 },
+  { id: '2020s', name: '2020s', code: 'GTS-250', note: 'Right now', filter: (s) => s.year >= 2020 },
 ];
 
 // A category must have at least this many songs to be offered.

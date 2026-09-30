@@ -50,7 +50,7 @@ export function applySettings() {
   const root = document.documentElement;
   root.dataset.theme = theme;
   root.dataset.animations = animations ? 'on' : 'off';
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f6f5fb' : '#0c0b12');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#F8F4EC' : '#13100D');
   sfx.enabled = sound;
   audioManager.setSource(audioSource);
   app.syncAmbient();

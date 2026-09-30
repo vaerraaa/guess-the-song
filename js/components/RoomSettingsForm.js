@@ -16,34 +16,34 @@ export function RoomSettingsForm({ initial = {}, idPrefix = 'rs' }) {
   const quizzes = listQuizzes();
   const source = initial.quizLocalId ? `quiz:${initial.quizLocalId}` : initial.categoryId ?? 'all';
   const element = html(`
-    <div class="room-settings">
-      <div class="field">
-        <span class="field-label" id="${idPrefix}-mode-label">Mode</span>
-        <span class="segmented segmented-wide" role="radiogroup" aria-labelledby="${idPrefix}-mode-label">
-          ${MULTIPLAYER_MODES.map((id) => `<label><input type="radio" name="${idPrefix}-mode" value="${id}" ${id === (initial.modeId ?? 'classic') ? 'checked' : ''}><span>${MODES[id].icon} ${MODES[id].name} <small>${MODES[id].timeLimitSec}s</small></span></label>`).join('')}
+    <div class="gts-stack">
+      <div class="ln-field">
+        <span class="ln-field__label" id="${idPrefix}-mode-label">Format</span>
+        <span class="ln-segment" role="radiogroup" aria-labelledby="${idPrefix}-mode-label">
+          ${MULTIPLAYER_MODES.map((id) => `<label><input type="radio" name="${idPrefix}-mode" value="${id}" ${id === (initial.modeId ?? 'classic') ? 'checked' : ''}><span>${esc(MODES[id].name)} · ${MODES[id].timeLimitSec}s</span></label>`).join('')}
         </span>
       </div>
-      <div class="field">
-        <label class="field-label" for="${idPrefix}-source">Songs</label>
-        <select id="${idPrefix}-source" class="text-input select">
+      <div class="ln-field">
+        <label class="ln-field__label" for="${idPrefix}-source">Record</label>
+        <select id="${idPrefix}-source" class="ln-input">
           <optgroup label="Categories">
-            ${categories.map((c) => `<option value="${c.id}" ${source === c.id ? 'selected' : ''}>${c.icon} ${esc(c.name)} (${c.count})</option>`).join('')}
+            ${categories.map((c) => `<option value="${c.id}" ${source === c.id ? 'selected' : ''}>${esc(c.code)} · ${esc(c.name)} (${c.count})</option>`).join('')}
           </optgroup>
           ${quizzes.length ? `<optgroup label="Your quizzes">
-            ${quizzes.map((q) => `<option value="quiz:${q.localId}" ${source === `quiz:${q.localId}` ? 'selected' : ''}>🎼 ${esc(q.title)} (${q.tracks.length})</option>`).join('')}
+            ${quizzes.map((q) => `<option value="quiz:${esc(q.localId)}" ${source === `quiz:${q.localId}` ? 'selected' : ''}>GTS-Q · ${esc(q.title)} (${q.tracks.length})</option>`).join('')}
           </optgroup>` : ''}
         </select>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label class="field-label" for="${idPrefix}-difficulty">Difficulty</label>
-          <select id="${idPrefix}-difficulty" class="text-input select">
-            ${Object.values(DIFFICULTIES).map((d) => `<option value="${d.id}" ${d.id === (initial.difficultyId ?? 'medium') ? 'selected' : ''}>${d.name} · ${d.previewSec}s preview</option>`).join('')}
+      <div class="ln-inline-form">
+        <div class="ln-field">
+          <label class="ln-field__label" for="${idPrefix}-difficulty">Difficulty</label>
+          <select id="${idPrefix}-difficulty" class="ln-input">
+            ${Object.values(DIFFICULTIES).map((d) => `<option value="${d.id}" ${d.id === (initial.difficultyId ?? 'medium') ? 'selected' : ''}>${esc(d.name)} · ${d.previewSec}s clip</option>`).join('')}
           </select>
         </div>
-        <div class="field">
-          <label class="field-label" for="${idPrefix}-count">Songs per game</label>
-          <select id="${idPrefix}-count" class="text-input select">
+        <div class="ln-field">
+          <label class="ln-field__label" for="${idPrefix}-count">Tracks</label>
+          <select id="${idPrefix}-count" class="ln-input">
             ${QUESTION_COUNTS.map((n) => `<option value="${n}" ${n === (initial.questionCount ?? 10) ? 'selected' : ''}>${n}</option>`).join('')}
           </select>
         </div>

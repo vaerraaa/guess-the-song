@@ -1,21 +1,19 @@
 import { esc, html } from '../utils.js';
 
 /**
- * Opens a native <dialog> (focus trapping + Esc handled by the browser).
- * `content` is a DOM node. Returns { dialog, close, closed: Promise<returnValue> }.
+ * Opens a native <dialog> (focus trapping + Esc handled by the browser), styled as a
+ * Liner Notes dialog: a boxed sheet on the scrim. Returns { dialog, close, closed }.
  */
-export function openModal({ title, content, className = '', labelledBy = 'modal-title' }) {
+export function openModal({ title, content, wide = false, labelledBy = 'modal-title' }) {
   const dialog = html(`
-    <dialog class="modal ${esc(className)}" aria-labelledby="${labelledBy}">
-      <div class="modal-inner">
-        <header class="modal-header">
-          <h2 id="${labelledBy}">${esc(title)}</h2>
-          <button type="button" class="icon-btn" data-close aria-label="Close">✕</button>
-        </header>
-        <div class="modal-body"></div>
+    <dialog class="ln-dialog ${wide ? 'ln-dialog--wide' : ''}" aria-labelledby="${labelledBy}">
+      <div class="ln-dialog__head">
+        <h2 class="ln-dialog__title" id="${labelledBy}">${esc(title)}</h2>
+        <button type="button" class="ln-dialog__close" data-close>Close</button>
       </div>
+      <div class="ln-dialog__body"></div>
     </dialog>`);
-  dialog.querySelector('.modal-body').append(content);
+  dialog.querySelector('.ln-dialog__body').append(content);
   document.body.append(dialog);
 
   const closed = new Promise((resolve) => {
@@ -24,11 +22,9 @@ export function openModal({ title, content, className = '', labelledBy = 'modal-
       dialog.remove();
     });
   });
-
   dialog.addEventListener('click', (e) => {
     if (e.target === dialog || e.target.closest('[data-close]')) dialog.close('cancel');
   });
-
   dialog.showModal();
   return { dialog, close: (value = '') => dialog.close(value), closed };
 }
@@ -36,14 +32,14 @@ export function openModal({ title, content, className = '', labelledBy = 'modal-
 /** Promise<boolean> confirm dialog. */
 export function confirmDialog({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', danger = false }) {
   const content = html(`
-    <div class="confirm">
-      <p>${esc(message)}</p>
-      <div class="btn-row">
-        <button type="button" class="btn btn-ghost" data-value="cancel">${esc(cancelLabel)}</button>
-        <button type="button" class="btn ${danger ? 'btn-danger' : 'btn-primary'}" data-value="ok">${esc(confirmLabel)}</button>
+    <div class="gts-stack">
+      <p class="ln-body-md">${esc(message)}</p>
+      <div class="ln-btn-row">
+        <button type="button" class="ln-btn ${danger ? 'ln-btn--danger' : 'ln-btn--primary'}" data-value="ok">${esc(confirmLabel)}</button>
+        <button type="button" class="ln-btn ln-btn--secondary" data-value="cancel">${esc(cancelLabel)}</button>
       </div>
     </div>`);
-  const modal = openModal({ title, content, className: 'modal-small', labelledBy: 'confirm-title' });
+  const modal = openModal({ title, content, labelledBy: 'confirm-title' });
   content.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-value]');
     if (btn) modal.close(btn.dataset.value);

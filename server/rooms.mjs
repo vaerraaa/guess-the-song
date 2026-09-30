@@ -75,7 +75,7 @@ function settingsSummary(settings) {
     previewSec: Math.min(DIFFICULTIES[settings.difficultyId].previewSec, mode.timeLimitSec),
     source: settings.quiz
       ? { kind: 'quiz', title: settings.quiz.title, count: settings.quiz.tracks.length }
-      : { kind: 'category', id: category.id, name: category.name, icon: category.icon },
+      : { kind: 'category', id: category.id, name: category.name, code: category.code },
   };
 }
 
